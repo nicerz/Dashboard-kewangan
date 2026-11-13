@@ -307,6 +307,7 @@ const MONTHS_LONG = ['Januari', 'Februari', 'Mac', 'April', 'Mei', 'Jun', 'Julai
 const now = () => new Date();
 const ymKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const ymLabel = (k, long) => { const [y, m] = k.split('-').map(Number); return `${(long ? MONTHS_LONG : MONTHS)[m - 1]} ${y}`; };
+const monthsBetween = (a, b) => { const [y1, m1] = a.split('-').map(Number), [y2, m2] = b.split('-').map(Number); return (y2 - y1) * 12 + (m2 - m1); };
 const mShort = (k) => MONTHS[Number(k.slice(5)) - 1];
 const addMonths = (k, n) => { const [y, m] = k.split('-').map(Number); return ymKey(new Date(y, m - 1 + n, 1)); };
 const dLabel = (iso) => { if (!iso) return '—'; const [y, m, d] = iso.split('-').map(Number); return `${d} ${MONTHS[m - 1]} ${y}`; };
@@ -352,6 +353,13 @@ const SEED = {
   }],
   snapshots: [],
 };
+/* sejarah 2025 dari "Kewangan Template - 2025.xlsx" (sheet ASET): aset sahaja, tiada baki hutang */
+const HISTORY_2025 = [{"m": "2025-01", "assets": 42832.69, "debt": null, "nw": null, "cats": {"tunai": 1315.42, "pot": 13989.86, "emas": 2118, "pelaburan": 6273.28, "kwsp": 19136.13}, "source": "Kewangan Template 2025"}, {"m": "2025-02", "assets": 47025.37, "debt": null, "nw": null, "cats": {"tunai": 1223.53, "pot": 14746.5, "emas": 2351, "pelaburan": 7826.83, "kwsp": 20877.51}, "source": "Kewangan Template 2025"}, {"m": "2025-03", "assets": 54267.85, "debt": null, "nw": null, "cats": {"tunai": 1835.93, "pot": 20360.26, "emas": 2533, "pelaburan": 7825.15, "kwsp": 21713.51}, "source": "Kewangan Template 2025"}, {"m": "2025-04", "assets": 53042.52, "debt": null, "nw": null, "cats": {"tunai": 1008.71, "pot": 19509.46, "emas": 2598, "pelaburan": 8212.84, "kwsp": 21713.51}, "source": "Kewangan Template 2025"}, {"m": "2025-06", "assets": 62572.31, "debt": null, "nw": null, "cats": {"tunai": 914.79, "pot": 23781.32, "emas": 2809, "pelaburan": 10725.69, "kwsp": 24341.51}, "source": "Kewangan Template 2025"}, {"m": "2025-07", "assets": 46854.83, "debt": null, "nw": null, "cats": {"tunai": 1763.52, "pot": 5519.83, "emas": 2533, "pelaburan": 11836.97, "kwsp": 25201.51}, "source": "Kewangan Template 2025"}, {"m": "2025-08", "assets": 65939.21, "debt": null, "nw": null, "cats": {"tunai": 1428.76, "pot": 23797.61, "emas": 2565, "pelaburan": 12052.33, "kwsp": 26095.51}, "source": "Kewangan Template 2025"}, {"m": "2025-12", "assets": 64553.04, "debt": null, "nw": null, "cats": {"tunai": 727.34, "pot": 24024.54, "emas": 3315, "pelaburan": 6814.65, "kwsp": 29671.51}, "source": "Kewangan Template 2025"}];
+const PATCHES = [
+  ['2026-11-13-xlsx', (S) => { for (const h of HISTORY_2025) if (!S.snapshots.some((s) => s.m === h.m)) S.snapshots.push(structuredClone(h)); S.snapshots.sort((a, b) => a.m.localeCompare(b.m)); }],
+  ['2026-11-13-motor', (S) => { const l = S.loans.find((x) => x.id === 'l2'); if (l) Object.assign(l, { balance: 15087, estimate: false, start: '2025-09', months: 60, monthsLeft: null, updated: '2026-09-30', note: 'Baki penyata 30 Sep 2026. Loan 5 tahun dari Sep 2025. Baki ni lebih RM1,504 daripada 47 × RM289 — semak tunggakan atau ansuran sebenar.' }); }],
+];
+function applyPatches(S) { S.patches = S.patches || []; for (const [id, fn] of PATCHES) if (!S.patches.includes(id)) { fn(S); S.patches.push(id); } return S; }
 const CATS = { pot: 'Tabung / Pot', kwsp: 'KWSP', pelaburan: 'Pelaburan', emas: 'Emas', tunai: 'Tunai', hartanah: 'Hartanah', lain: 'Lain-lain' };
 const CAT_ORDER = ['pot', 'kwsp', 'pelaburan', 'emas', 'tunai', 'hartanah', 'lain'];
 const CAT_COLOUR = { pot: 'var(--accent)', kwsp: 'var(--cat-2)', pelaburan: 'var(--cat-3)', emas: '#b98a2a', tunai: '#5c5853', hartanah: '#c9c4bd', lain: '#4d4a46' };
@@ -384,7 +392,8 @@ function loanInfo(l) {
   const payment = l.payment ?? autoPay;
   const started = !!l.start && l.start <= ymKey(now());
   const sim = l.rate != null && payment && l.balance ? schedule(l.balance, l.rate, payment, 0) : null;
-  const monthsLeft = sim ? sim.rows.length : l.monthsLeft ?? (payment && l.balance ? Math.ceil(l.balance / payment) : null);
+  const byPlan = l.start && l.months ? Math.max(0, l.months - (monthsBetween(l.start, ymKey(now())))) : null;
+  const monthsLeft = sim ? sim.rows.length : byPlan ?? l.monthsLeft ?? (payment && l.balance ? Math.ceil(l.balance / payment) : null);
   const totalInterest = autoPay && l.months ? schedule(l.principal, l.rate, autoPay).interest : null;
   const paid = l.principal ? Math.max(0, 1 - l.balance / l.principal) : null;
   let end = null;
@@ -459,7 +468,7 @@ function migrate(x) {
   const m = Object.assign(structuredClone(SEED), x);
   if (!x.businesses && x.biz) m.businesses = [{ id: 'b1', name: x.biz.name || 'Hustfam', desc: 'Sewa kamera, Kuantan', tx: x.biz.tx || [], gear: x.biz.gear || [] }];
   delete m.biz; m.v = 2;
-  return m;
+  return applyPatches(m);
 }
 function stamp() {
   const el = $('#stamp'); if (!el) return;
@@ -554,7 +563,7 @@ const after = {};
 const updatedLine = (iso) => iso ? `dikemas kini ${dLabel(iso)}` : 'belum diisi';
 const titleRow = (h, sub) => `<div class="title-row"><h1>${h}</h1><span id="stamp" class="chip" aria-live="polite"></span></div>${sub ? `<p class="subline">${sub}</p>` : ''}`;
 const deltaPill = (cur, prev, { goodUp = true, fmt = (v) => RM(v, { sign: true }) } = {}) => {
-  if (prev == null) return '<span class="pill quiet">Snapshot pertama</span>';
+  if (prev == null) return '<span class="pill quiet">Tiada perbandingan</span>';
   const d = r2(cur - prev); if (d === 0) return '<span class="pill">Tiada ubah</span>';
   const good = goodUp ? d > 0 : d < 0;
   return `<span class="pill ${good ? 'pos' : 'neg'}">${d > 0 ? '↑' : '↓'} ${fmt(d)}</span>`;
@@ -584,10 +593,10 @@ function insightFor(t) {
   if (t.nw < 0 && house) return { h: 'Rumah dah jadi hutang, belum jadi aset', p: `Hutang BSN ${RM0(bsn ? bsn.balance : 0)} dikira, tapi nilai rumah Taman Pandan Perdana belum diisi${gold ? ', dan emas belum ada harga' : ''}. Sebab tu net worth negatif.`, a: `<button class="link" data-edit-asset="${house.id}">Isi nilai rumah</button>` };
   if (gold) return { h: 'Emas belum dikira', p: `${gold.grams} g emas belum ada harga semasa.`, a: `<button class="link" data-edit-asset="${gold.id}">Isi harga emas</button>` };
   const prev = prevSnap();
-  if (prev) { const d = r2(t.nw - prev.nw); return { h: d >= 0 ? `Net worth naik ${RM(d)}` : `Net worth turun ${RM(Math.abs(d))}`, p: `Berbanding ${ymLabel(prev.m, true)}.`, a: '<a class="link" href="#report">Buka report</a>' }; }
+  if (prev && prev.nw != null) { const d = r2(t.nw - prev.nw); return { h: d >= 0 ? `Net worth naik ${RM(d)}` : `Net worth turun ${RM(Math.abs(d))}`, p: `Berbanding ${ymLabel(prev.m, true)}.`, a: '<a class="link" href="#report">Buka report</a>' }; }
   return { h: 'Semua aset dah ada nilai', p: 'Kemas kini baki setiap awal bulan untuk nampak trend.', a: '<button class="link" data-act="quick">Kemas kini baki</button>' };
 }
-let trendSpan = 6;
+let trendSpan = 24;
 function vRingkasan() {
   const t = totals(), k = ymKey(now()), p = pnl(k), fx = fixedKnown(), ni = netIncome(), prev = prevSnap();
   const ins = insightFor(t);
@@ -605,7 +614,7 @@ function vRingkasan() {
       <div class="insight"><h3>${ins.h}</h3><p>${ins.p}</p>${ins.a}</div>
     </section>
     <div class="s5 tiles" style="grid-template-rows:1fr 1fr">
-      ${tile({ tone: 't2', label: 'Jumlah aset', value: RM(t.assets), pill: deltaPill(t.assets, prev?.assets), link: '<a class="link" href="#aset">Lihat aset</a>' })}
+      ${tile({ tone: 't2', label: 'Jumlah aset', value: RM(t.assets), pill: prev?.source ? `<span class="pill quiet">${RM(t.assets - prev.assets, { sign: true })} vs ${ymLabel(prev.m)} (Excel, akaun berbeza)</span>` : deltaPill(t.assets, prev?.assets), link: '<a class="link" href="#aset">Lihat aset</a>' })}
       ${tile({ tone: 't3', label: 'Baki hutang', value: RM(t.debt), pill: deltaPill(t.debt, prev?.debt, { goodUp: false }), link: '<a class="link" href="#loans">Lihat loans</a>' })}
       ${tile({ label: 'Baki sebulan', value: RM(afterFixed), pill: `<span class="pill quiet">selepas kos tetap${bsn ? `, ${RM(afterFixed - bsnPay)} bila BSN mula` : ''}</span>`, link: '<button class="link" data-act="income">Edit pendapatan</button>' })}
       ${tile({ tone: 't2', label: `Untung bisnes · ${mShort(k)}`, value: RM(p.net, { sign: true }), pill: `<span class="pill">${p.count} transaksi</span>`, link: '<a class="link" href="#bisnes">Lihat bisnes</a>' })}
@@ -613,8 +622,8 @@ function vRingkasan() {
   </div>
   <div class="grid">
     <section class="card s7" aria-labelledby="h-tr">
-      <header><h2 id="h-tr">Aset bulan demi bulan</h2><div class="seg small" role="group" aria-label="Tempoh">${[6, 12].map((n) => `<button data-span="${n}" aria-pressed="${trendSpan === n}">${n} bln</button>`).join('')}</div></header>
-      <p class="label">${RM(t.assets)} bulan ni${prev ? `, ${RM(t.assets - prev.assets, { sign: true })} vs ${ymLabel(prev.m)}` : ' · snapshot pertama, trend bertambah setiap bulan'}</p>
+      <header><h2 id="h-tr">Aset bulan demi bulan</h2><div class="seg small" role="group" aria-label="Tempoh">${[12, 24].map((n) => `<button data-span="${n}" aria-pressed="${trendSpan === n}">${n} bln</button>`).join('')}</div></header>
+      <p class="label">${RM(t.assets)} bulan ni${prev ? `, ${RM(t.assets - prev.assets, { sign: true })} vs ${ymLabel(prev.m)}` : ' · snapshot pertama, trend bertambah setiap bulan'}${prev && prev.source ? ' <span class="faint">(2025 dari Excel, akaun berbeza)</span>' : ''}</p>
       <div class="chart" id="trend"></div>
     </section>
     <section class="card s5" aria-labelledby="h-pot">
@@ -651,7 +660,7 @@ function vRingkasan() {
 after.ringkasan = () => {
   const k = ymKey(now()), labels = [], values = [], months = [];
   for (let i = -(trendSpan - 1); i <= 0; i++) { const m = addMonths(k, i); months.push(m); labels.push(mShort(m)); const s = S.snapshots.find((x) => x.m === m); values.push(s ? s.assets : null); }
-  barChart($('#trend'), { labels, values, current: trendSpan - 1, height: innerWidth <= 720 ? 200 : 268, tip: (i) => { const s = S.snapshots.find((x) => x.m === months[i]); return s ? tipRows(ymLabel(months[i]), [['Aset', RM(s.assets)], ['Hutang', RM(s.debt)], ['Net worth', RM(s.nw)]]) : tipRows(ymLabel(months[i]), [['Tiada snapshot', '—']]); } });
+  barChart($('#trend'), { labels, values, current: trendSpan - 1, height: innerWidth <= 720 ? 200 : 268, tip: (i) => { const s = S.snapshots.find((x) => x.m === months[i]); return s ? tipRows(ymLabel(months[i]), [['Aset', RM(s.assets)], ['Hutang', s.debt == null ? 'tiada data' : RM(s.debt)], ['Net worth', s.nw == null ? '—' : RM(s.nw)]]) : tipRows(ymLabel(months[i]), [['Tiada snapshot', '—']]); } });
 };
 function potRow(a, compact) {
   const ratio = a.target ? a.value / a.target : null, done = ratio != null && ratio >= 1;
@@ -676,7 +685,7 @@ function vAset() {
   <div class="controls"><button class="btn" data-act="asset-add">${I(ICON.plus)}Aset</button><button class="btn primary" data-act="quick">Kemas kini baki</button></div>
   <div class="grid">
     <section class="card hero s5" aria-labelledby="h-at">
-      <header style="margin-bottom:0"><h2 id="h-at" class="label" style="font-size:14px;font-weight:500">Jumlah aset</h2>${deltaPill(t.assets, prev?.assets)}</header>
+      <header style="margin-bottom:0"><h2 id="h-at" class="label" style="font-size:14px;font-weight:500">Jumlah aset</h2>${prev?.source ? '' : deltaPill(t.assets, prev?.assets)}</header>
       <div class="big">${RM(t.assets)}</div>
       <div style="display:flex;height:14px;border-radius:6px;overflow:hidden;margin-top:20px;gap:2px" role="img" aria-label="Pecahan aset ikut kategori">${shown.map((c) => `<span style="width:${(t.cats[c] / t.assets) * 100}%;background:${CAT_COLOUR[c]}"></span>`).join('')}</div>
       <div class="legend" style="margin-top:12px">${shown.map((c) => `<span><i style="background:${CAT_COLOUR[c]}"></i>${CATS[c]} ${PCT(t.cats[c] / t.assets, 0)}</span>`).join('')}</div>
@@ -842,18 +851,20 @@ function reportData(m) {
   const i = S.snapshots.findIndex((s) => s.m === m), snap = S.snapshots[i], prev = i > 0 ? S.snapshots[i - 1] : null;
   const p = pnl(m);
   const sav = (s) => ['pot', 'pelaburan', 'tunai', 'emas'].reduce((a, c) => a + (s.cats[c] || 0), 0);
-  const savingsRate = prev ? (sav(snap) - sav(prev)) / (snap.netIncome || netIncome()) : null;
-  return { snap, prev, p, change: prev ? r2(snap.nw - prev.nw) : null, savingsRate, dtiNow: dti() };
+  const consecutive = prev && monthsBetween(prev.m, m) === 1;
+  const savingsRate = consecutive && snap.netIncome ? (sav(snap) - sav(prev)) / snap.netIncome : null;
+  const change = prev && snap.nw != null && prev.nw != null ? r2(snap.nw - prev.nw) : null;
+  return { snap, prev, p, change, assetChange: prev ? r2(snap.assets - prev.assets) : null, savingsRate, consecutive, dtiNow: dti() };
 }
 function reportText(m) {
   const { snap, prev, p, change, savingsRate, dtiNow } = reportData(m);
   return [
     `*Laporan kewangan ${ymLabel(m, true)}*`,
-    `Net worth: ${RM(snap.nw)}${change != null ? ` (${RM(change, { sign: true })} vs ${ymLabel(prev.m)})` : ''}`,
-    `Aset: ${RM(snap.assets)} | Hutang: ${RM(snap.debt)}`, '',
+    `Net worth: ${snap.nw == null ? 'tiada data hutang' : RM(snap.nw)}${change != null ? ` (${RM(change, { sign: true })} vs ${ymLabel(prev.m)})` : ''}`,
+    `Aset: ${RM(snap.assets)} | Hutang: ${snap.debt == null ? '—' : RM(snap.debt)}`, '',
     '*Aset*', ...Object.entries(snap.cats).map(([c, v]) => `- ${CATS[c]}: ${RM(v)}`), '',
     '*Bisnes*', ...S.businesses.map((b) => { const q = pnl(m, b.id); return `- ${b.name}: income ${RM(q.inc)}, expense ${RM(q.exp)}, untung ${RM(q.net, { sign: true })}`; }), '',
-    '*Loans*', ...S.loans.map((l) => `- ${l.name}: baki ${RM(l.balance)}${l.estimate ? ' (anggaran)' : ''}${loanInfo(l).active ? '' : ', belum mula'}`), '',
+    ...(snap.source ? [`Sumber: ${snap.source}`] : ['*Loans*']), ...(snap.source ? [] : S.loans).map((l) => `- ${l.name}: baki ${RM(l.balance)}${l.estimate ? ' (anggaran)' : ''}${loanInfo(l).active ? '' : ', belum mula'}`), '',
     `DTI: ${PCT(dtiNow.ratio)} | Savings rate: ${PCT(savingsRate)}`,
   ].join('\n');
 }
@@ -861,18 +872,19 @@ function vReport() {
   if (!S.snapshots.length) upsertSnapshot();
   const months = S.snapshots.map((s) => s.m);
   if (!reportMonth || !months.includes(reportMonth)) reportMonth = months[months.length - 1];
-  const { snap, prev, p, change, savingsRate, dtiNow } = reportData(reportMonth);
+  const { snap, prev, p, change, assetChange, savingsRate, consecutive, dtiNow } = reportData(reportMonth);
   const recent = months.slice(-6);
-  return `${titleRow('Report', prev ? `${ymLabel(reportMonth, true)} berbanding ${ymLabel(prev.m, true)}` : `${ymLabel(reportMonth, true)} · snapshot pertama, perbandingan mula bulan depan`)}
+  const hist = !!snap.source;
+  return `${titleRow('Report', hist ? `${ymLabel(reportMonth, true)} · dari ${esc(snap.source)}` : prev ? `${ymLabel(reportMonth, true)} berbanding ${ymLabel(prev.m, true)}` : `${ymLabel(reportMonth, true)} · snapshot pertama, perbandingan mula bulan depan`)}
   <div class="controls">
     <div class="seg" role="group" aria-label="Pilih bulan">${recent.map((m) => `<button data-month="${m}" aria-pressed="${m === reportMonth}">${ymLabel(m)}</button>`).join('')}</div>
     <span class="spacer"></span><button class="btn primary" data-act="copy">Copy report</button>
   </div>
   <div class="tiles" id="rep-tiles" style="grid-template-columns:repeat(var(--cols,4),minmax(0,1fr))">
-    ${tile({ tone: 'hero-tile wide', label: 'Net worth', value: RM(snap.nw), pill: change == null ? '<span class="pill quiet">tiada bulan sebelum</span>' : deltaPill(snap.nw, prev.nw) })}
-    ${tile({ tone: 't2', label: 'Perubahan', value: change == null ? '—' : RM(change, { sign: true }), pill: `<span class="pill quiet">${prev ? 'vs ' + ymLabel(prev.m) : 'perlu 2 bulan'}</span>` })}
+    ${hist ? tile({ tone: 'hero-tile wide', label: 'Jumlah aset', value: RM(snap.assets), pill: '<span class="pill quiet">2025: hutang tak direkod</span>' }) : tile({ tone: 'hero-tile wide', label: 'Net worth', value: RM(snap.nw), pill: change == null ? '<span class="pill quiet">tiada net worth bulan sebelum</span>' : deltaPill(snap.nw, prev.nw) })}
+    ${tile({ tone: 't2', label: change != null ? 'Perubahan net worth' : 'Perubahan aset', value: change != null ? RM(change, { sign: true }) : assetChange == null ? '—' : RM(assetChange, { sign: true }), pill: `<span class="pill quiet">${prev ? 'vs ' + ymLabel(prev.m) + (consecutive ? '' : ', bukan bulan berturut') : 'tiada bulan sebelum'}</span>` })}
     ${tile({ tone: 't3', label: 'Debt-to-income', value: PCT(dtiNow.ratio), pill: `<span class="pill quiet">${RM(dtiNow.pay)}/bln</span>` })}
-    ${tile({ label: 'Savings rate', value: savingsRate == null ? '—' : PCT(savingsRate), pill: `<span class="pill quiet">${prev ? 'simpanan baru ÷ gaji bersih' : 'perlu 2 bulan'}</span>` })}
+    ${tile({ label: 'Savings rate', value: savingsRate == null ? '—' : PCT(savingsRate), pill: `<span class="pill quiet">${consecutive ? 'simpanan baru ÷ gaji bersih' : 'perlu 2 bulan berturut'}</span>` })}
   </div>
   <div class="grid" style="margin-top:var(--gap)">
     <section class="card s4" aria-labelledby="h-ra"><header><h2 id="h-ra">Aset</h2></header>
@@ -880,7 +892,7 @@ function vReport() {
     <section class="card s4" aria-labelledby="h-rp"><header><h2 id="h-rp">Bisnes P&L</h2><span class="pill">${p.count} transaksi</span></header>
       <dl class="kv"><div><dt>Income</dt><dd>${RM(p.inc)}</dd></div><div><dt>Expense</dt><dd>${RM(p.exp)}</dd></div><div class="total"><dt>Untung bersih</dt><dd>${RM(p.net, { sign: true })}</dd></div><div><dt>Margin</dt><dd>${PCT(p.margin)}</dd></div></dl></section>
     <section class="card s4" aria-labelledby="h-rl"><header><h2 id="h-rl">Status loans</h2></header>
-      <dl class="kv">${S.loans.map((l) => { const li = loanInfo(l); return `<div><dt>${esc(l.name)}<span class="faint small" style="display:block">${li.active ? (li.monthsLeft ? li.monthsLeft + ' bulan lagi' : '—') : 'belum mula'}</span></dt><dd>${RM(l.balance)}</dd></div>`; }).join('')}<div class="total"><dt>Jumlah</dt><dd>${RM(snap.debt)}</dd></div></dl></section>
+      ${hist ? '<div class="empty" style="flex:1"><span>Fail Excel 2025 tak ada baki hutang. Status loans bermula Nov 2026.</span></div>' : `<dl class="kv">${S.loans.map((l) => { const li = loanInfo(l); return `<div><dt>${esc(l.name)}<span class="faint small" style="display:block">${li.active ? (li.monthsLeft ? li.monthsLeft + ' bulan lagi' : '—') : 'belum mula'}</span></dt><dd>${RM(l.balance)}</dd></div>`; }).join('')}<div class="total"><dt>Jumlah</dt><dd>${RM(snap.debt)}</dd></div></dl>`}</section>
   </div>
   <div class="grid">
     <section class="card t2 s12" aria-labelledby="h-rt"><header><h2 id="h-rt">Teks untuk WhatsApp</h2><button class="link" data-act="copy">Copy</button></header>
@@ -1093,7 +1105,7 @@ let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTime
 /* ---------- boot ---------- */
 let theme = 'dark'; try { theme = localStorage.getItem(TKEY) || 'dark'; } catch {}
 const local = loadLocal();
-if (local) S = migrate(local); else upsertSnapshot();
+if (local) S = migrate(local); else { applyPatches(S); upsertSnapshot(); }
 if (!S.snapshots.length) upsertSnapshot();
 route(); setTheme(theme);
 document.fonts && document.fonts.ready.then(() => after[view] && after[view]());
